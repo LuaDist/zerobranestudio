@@ -10,6 +10,8 @@ url = "http://studio.zerobrane.com/"
 maintainer = "Peter Drahoš"
 
 depends = {
+	"lua ~> 5.1",
+	"srlua >= 5.1",
 	"mobdebug >= 0.5",
 	"wxlua >= 2.8",
 	"copas >= 1.1",
