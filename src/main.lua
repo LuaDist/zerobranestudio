@@ -173,11 +173,7 @@ do
   -- whereas wxGetCwd() is not (at least in wxlua 2.8.12.2).
   -- some wxlua version on windows report wx.dll instead of *.exe.
   local exepath = wx.wxStandardPaths.Get():GetExecutablePath()
-  if ide.osname == "Windows" and exepath:find("%.exe$") then
-    fullPath = exepath
-  elseif not wx.wxIsAbsolutePath(fullPath) then
-    fullPath = wx.wxGetCwd().."/"..fullPath
-  end
+  fullPath = wx.wxGetCwd().."/"..fullPath
 
   ide.editorFilename = fullPath
   ide.config.path.app = fullPath:match("([%w_-%.]+)$"):gsub("%.[^%.]*$","")
