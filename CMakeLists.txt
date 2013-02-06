@@ -9,5 +9,5 @@ cmake_minimum_required ( VERSION 2.8 )
 include ( cmake/dist.cmake )
 include ( lua )
 
-install_lua_executable ( zbstudio zbstudio.lua NOCONSOLE)
+install_lua_executable ( zbstudio zbstudio.lua NOCONSOLE )
 install_data ( src api cfg interpreters spec tools zbstudio )
