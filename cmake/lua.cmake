@@ -34,10 +34,14 @@ endmacro ()
 # The application or its source will be placed into /bin 
 # If the application source did not have .lua suffix then it will be added
 # USE: lua_executable ( sputnik src/sputnik.lua )
-macro ( install_lua_executable _name _source )
+macro ( install_lua_executable _name _source _option)
   get_filename_component ( _source_name ${_source} NAME_WE )
   # Find srlua and glue
-  find_program( SRLUA_EXECUTABLE NAMES srlua )
+  if (_option STREQUAL "NOCONSOLE")
+    find_program( SRLUA_EXECUTABLE NAMES srlua )
+  else()
+    find_program( SRLUA_EXECUTABLE NAMES srlua )
+  endif()    
   find_program( GLUE_EXECUTABLE NAMES glue )
   # Executable output
   set ( _exe ${CMAKE_CURRENT_BINARY_DIR}/${_name}${CMAKE_EXECUTABLE_SUFFIX} )
