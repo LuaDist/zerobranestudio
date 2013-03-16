@@ -1,7 +1,7 @@
 --- This file is part of LuaDist project
 
 name = "zerobranestudio"
-version = "0.34"
+version = "0.35"
 
 desc = "A lightweight Lua-based IDE for Lua with code completion, syntax highlighting, live coding, remote debugger, and code analyzer."
 author = "Paul Kulchenko"
