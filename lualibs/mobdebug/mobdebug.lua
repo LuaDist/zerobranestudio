@@ -1,12 +1,12 @@
 --
--- MobDebug 0.516
+-- MobDebug 0.517
 -- Copyright 2011-12 Paul Kulchenko
 -- Based on RemDebug 1.0 Copyright Kepler Project 2005
 --
 
 local mobdebug = {
   _NAME = "mobdebug",
-  _VERSION = 0.516,
+  _VERSION = 0.517,
   _COPYRIGHT = "Paul Kulchenko",
   _DESCRIPTION = "Mobile Remote Debugger for the Lua programming language",
   port = os and os.getenv and os.getenv("MOBDEBUG_PORT") or 8172,
@@ -35,7 +35,6 @@ local tonumber = tonumber
 -- the debug loop as 'wx' can be loaded at any time during debugging.
 local genv = _G or _ENV
 local jit = rawget(genv, "jit")
-local mosync = rawget(genv, "mosync")
 local MOAICoroutine = rawget(genv, "MOAICoroutine")
 
 if not setfenv then -- Lua 5.2
@@ -63,150 +62,13 @@ local iswindows = os and os.getenv and (os.getenv('WINDIR')
   or (os.getenv('OS') or ''):match('[Ww]indows'))
   or pcall(require, "winapi")
 
--- this is a socket class that implements maConnect interface
-local function socketMobileLua() 
-  local self = {}
-  self.select = function(readfrom) -- writeto and timeout parameters are ignored
-    local canread = {}
-    for _,s in ipairs(readfrom) do
-      if s:receive(0) then canread[s] = true end
-    end
-    return canread
-  end
-  self.connect = coroutine.wrap(function(host, port)
-    while true do
-      local connection = mosync.maConnect("socket://" .. host .. ":" .. port)
-  
-      if connection > 0 then
-        local event = mosync.SysEventCreate()
-        while true do
-          mosync.maWait(0)
-          mosync.maGetEvent(event)
-          local eventType = mosync.SysEventGetType(event)
-          if (mosync.EVENT_TYPE_CONN == eventType and
-            mosync.SysEventGetConnHandle(event) == connection and
-            mosync.SysEventGetConnOpType(event) == mosync.CONNOP_CONNECT) then
-              -- result > 0 ? success : error
-              if not (mosync.SysEventGetConnResult(event) > 0) then connection = nil end
-              break
-          elseif mosync.EventMonitor and mosync.EventMonitor.HandleEvent then
-            mosync.EventMonitor:HandleEvent(event)
-          end
-        end
-        mosync.SysFree(event)
-      end
-  
-      host, port = coroutine.yield(connection and (function ()
-        local self = {}
-        local outBuffer = mosync.SysAlloc(1000)
-        local inBuffer = mosync.SysAlloc(1000)
-        local event = mosync.SysEventCreate()
-        local recvBuffer = ""
-        function stringToBuffer(s, buffer)
-          local i = 0
-          for c in s:gmatch(".") do
-            i = i + 1
-            local b = s:byte(i)
-            mosync.SysBufferSetByte(buffer, i - 1, b)
-          end
-          return i
-        end
-        function bufferToString(buffer, len)
-          local s = ""
-          for i = 0, len - 1 do
-            local c = mosync.SysBufferGetByte(buffer, i)
-            s = s .. string.char(c)
-          end
-          return s
-        end
-        self.send = coroutine.wrap(function(self, msg)
-          while true do
-            local numberOfBytes = stringToBuffer(msg, outBuffer)
-            mosync.maConnWrite(connection, outBuffer, numberOfBytes)
-            while true do
-              mosync.maWait(0)
-              mosync.maGetEvent(event)
-              local eventType = mosync.SysEventGetType(event)
-              if (mosync.EVENT_TYPE_CONN == eventType and
-                  mosync.SysEventGetConnHandle(event) == connection and
-                  mosync.SysEventGetConnOpType(event) == mosync.CONNOP_WRITE) then
-                break
-              elseif mosync.EventMonitor and mosync.EventMonitor.HandleEvent then
-                mosync.EventMonitor:HandleEvent(event)
-              end
-            end
-            self, msg = coroutine.yield()
-          end
-        end)
-        self.receive = coroutine.wrap(function(self, len)
-          while true do
-            local line = recvBuffer
-            while (len and string.len(line) < len)     -- either we need len bytes
-               or (not len and not line:find("\n")) -- or one line (if no len specified)
-               or (len == 0) do -- only check for new data (select-like)
-              mosync.maConnRead(connection, inBuffer, 1000)
-              while true do
-                if len ~= 0 then mosync.maWait(0) end
-                mosync.maGetEvent(event)
-                local eventType = mosync.SysEventGetType(event)
-                if (mosync.EVENT_TYPE_CONN == eventType and
-                    mosync.SysEventGetConnHandle(event) == connection and
-                    mosync.SysEventGetConnOpType(event) == mosync.CONNOP_READ) then
-                  local result = mosync.SysEventGetConnResult(event)
-                  if result > 0 then line = line .. bufferToString(inBuffer, result) end
-                  if len == 0 then self, len = coroutine.yield("") end
-                  break -- got the event we wanted; now check if we have all we need
-                elseif len == 0 then
-                  self, len = coroutine.yield(nil)
-                elseif mosync.EventMonitor and mosync.EventMonitor.HandleEvent then
-                  mosync.EventMonitor:HandleEvent(event)
-                end
-              end  
-            end
-    
-            if not len then
-              len = string.find(line, "\n") or string.len(line)
-            end
-    
-            recvBuffer = string.sub(line, len+1)
-            line = string.sub(line, 1, len)
-    
-            self, len = coroutine.yield(line)
-          end
-        end)
-        self.close = coroutine.wrap(function(self) 
-          while true do
-            mosync.SysFree(inBuffer)
-            mosync.SysFree(outBuffer)
-            mosync.SysFree(event)
-            mosync.maConnClose(connection)
-            coroutine.yield(self)
-          end
-        end)
-        return self
-      end)())
-    end
-  end)
-
-  return self
-end
-
--- overwrite RunEventLoop in MobileLua as it conflicts with the event
--- loop that needs to run to process debugger events (socket read/write).
--- event loop functionality is implemented by calling HandleEvent
--- while waiting for debugger events.
-if mosync and mosync.EventMonitor then
-  mosync.EventMonitor.RunEventLoop = function(self) end
-end
-
 -- turn jit off based on Mike Pall's comment in this discussion:
 -- http://www.freelists.org/post/luajit/Debug-hooks-and-JIT,2
 -- "You need to turn it off at the start if you plan to receive
 -- reliable hook calls at any later point in time."
 if jit and jit.off then jit.off() end
 
-local socket = mosync and socketMobileLua() or (require "socket")
-
+local socket = require "socket"
 local debug = require "debug"
 local coro_debugger
 local coro_debugee
@@ -655,10 +517,10 @@ local function stringify_results(status, ...)
   return pcall(serpent.dump, t, {sparse = false})
 end
 
-local function debugger_loop(sfile, sline)
+local function debugger_loop(sev, svars, sfile, sline)
   local command
   local app, osname
-  local eval_env = {}
+  local eval_env = svars or {}
   local function emptyWatch () return false end
   local loaded = {}
   for k in pairs(package.loaded) do loaded[k] = true end
@@ -953,7 +815,7 @@ local function start(controller_host, controller_port)
     end
     coro_debugger = coroutine.create(debugger_loop)
     debug.sethook(debug_hook, "lcr")
-    local ok, res = coroutine.resume(coro_debugger, file, info.currentline)
+    local ok, res = coroutine.resume(coro_debugger, events.RESTART, capture_vars(), file, info.currentline)
     if not ok and res then error(res, 2) end
     return true
   else
@@ -1005,6 +867,13 @@ local function controller(controller_host, controller_port)
           report(debug.traceback(coro_debugee), tostring(err))
           if exitonerror then break end
           -- resume once more to clear the response the debugger wants to send
+          -- need to use capture_vars(2) as three would be the level of
+          -- the caller for controller(), but because of the tail call,
+          -- the caller may not exist;
+          -- This is not entirely safe as the user may see the local
+          -- variable from console, but they will be reset anyway.
+          -- This functionality is used when scratchpad is paused to
+          -- gain access to remote console to modify global variables.
           local status, err = coroutine.resume(coro_debugger, events.RESTART, capture_vars(2))
           if not status or status and err == "exit" then break end
         end
@@ -1463,6 +1332,22 @@ local function moai()
   end
 end
 
+-- this is a function that removes all hooks and closes the socket to
+-- report back to the controller that the debugging is done.
+-- the script that called `done` can still continue.
+local function done()
+  if not (isrunning() and server) then return end
+
+  if not jit then
+    for co, debugged in pairs(coroutines) do
+      if debugged then debug.sethook(co) end
+    end
+  end
+
+  debug.sethook()
+  server:close()
+end
+
 -- make public functions available
 mobdebug.listen = listen
 mobdebug.loop = loop
@@ -1474,6 +1359,7 @@ mobdebug.on = on
 mobdebug.off = off
 mobdebug.moai = moai
 mobdebug.coro = coro
+mobdebug.done = done
 mobdebug.line = serpent.line
 mobdebug.dump = serpent.dump
 mobdebug.yield = nil -- callback

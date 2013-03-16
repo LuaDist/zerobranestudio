@@ -37,8 +37,8 @@ ide = {
       app = nil,
     },
     editor = {
-      usetabs = true,
-      autotabs = true,
+      foldcompact = true,
+      checkeol = true,
     },
     debugger = {
       verbose = false,

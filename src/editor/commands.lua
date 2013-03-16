@@ -68,8 +68,10 @@ function LoadFile(filePath, editor, file_must_exist, skipselection)
   editor:MarkerDeleteAll(CURRENT_LINE_MARKER)
   editor:AppendText(file_text or "")
 
-  -- check the editor as it can be empty if the file has malformed UTF8
-  if file_text and #file_text > 0 and #(editor:GetText()) == 0 then
+  -- check the editor as it can be empty if the file has malformed UTF8;
+  -- skip binary files as they may have any sequences; can't show them anyway.
+  if file_text and #file_text > 0 and not isBinary(file_text)
+  and #(editor:GetText()) == 0 then
     local replacement, invalid = "\022"
     file_text, invalid = fixUTF8(file_text, replacement)
     if #invalid > 0 then
@@ -93,6 +95,24 @@ function LoadFile(filePath, editor, file_must_exist, skipselection)
   if (ide.config.editor.autotabs) then
     local found = string.find(file_text,"\t") ~= nil
     editor:SetUseTabs(found)
+  end
+  
+  if (ide.config.editor.checkeol) then
+    -- Auto-detect CRLF/LF line-endings
+    local foundcrlf = string.find(file_text,"\r\n") ~= nil
+    local foundlf = (string.find(file_text,"[^\r]\n") ~= nil)
+      or (string.find(file_text,"^\n") ~= nil) -- edge case: file beginning with LF and having no other LF
+    if foundcrlf and foundlf then -- file with mixed line-endings
+      DisplayOutputLn(("%s: %s")
+        :format(filePath, TR("Mixed end-of-line encodings detected.")..' '..
+          TR("Use '%s' to show line endings and '%s' to convert them.")
+        :format("GetEditor():SetViewEOL(1)", "GetEditor():ConvertEOLs(GetEditor():GetEOLMode())")))
+    elseif foundcrlf then
+      editor:SetEOLMode(wxstc.wxSTC_EOL_CRLF)
+    elseif foundlf then
+      editor:SetEOLMode(wxstc.wxSTC_EOL_LF)
+    -- else (e.g. file is 1 line long or uses another line-ending): use default EOL mode
+    end
   end
 
   editor:EmptyUndoBuffer()
@@ -725,12 +745,15 @@ function CloseWindow(event)
   ide.settings:delete() -- always delete the config
   if ide.session.timer then ide.session.timer:Stop() end
   event:Skip()
-
-  -- without explicit exit() the IDE crashes with SIGILL exception when closed
-  -- on MacOS compiled under 64bit with wxwidgets 2.9.3
-  if ide.osname == "Macintosh" then os.exit() end
 end
 frame:Connect(wx.wxEVT_CLOSE_WINDOW, CloseWindow)
+
+function DestroyWindow(event)
+  if event:GetEventObject():DynamicCast("wxObject") == frame:DynamicCast("wxObject") then
+    frame.uimgr:UnInit()
+  end
+end
+frame:Connect(wx.wxEVT_DESTROY, DestroyWindow)
 
 frame:Connect(wx.wxEVT_TIMER, saveAutoRecovery)
 

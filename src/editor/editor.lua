@@ -340,9 +340,15 @@ function CreateEditor()
     editor:SetWrapVisualFlagsLocation(wxstc.wxSTC_WRAPVISUALFLAGLOC_END_BY_TEXT)
   end
 
+  if (ide.config.editor.defaulteol == wxstc.wxSTC_EOL_CRLF
+     or ide.config.editor.defaulteol == wxstc.wxSTC_EOL_LF) then
+    editor:SetEOLMode(ide.config.editor.defaulteol)
+  -- else: keep wxStyledTextCtrl default behavior (CRLF on Windows, LF on Unix)
+  end
+
   editor:SetCaretLineVisible(ide.config.editor.caretline and 1 or 0)
 
-  editor:SetVisiblePolicy(wxstc.wxSTC_VISIBLE_SLOP, 3)
+  editor:SetVisiblePolicy(wxstc.wxSTC_VISIBLE_STRICT, 3)
 
   editor:SetMarginWidth(0, editor:TextWidth(32, "99999_")) -- line # margin
 
@@ -360,10 +366,6 @@ function CreateEditor()
 
   editor:SetFoldFlags(wxstc.wxSTC_FOLDFLAG_LINEBEFORE_CONTRACTED +
     wxstc.wxSTC_FOLDFLAG_LINEAFTER_CONTRACTED)
-
-  editor:SetProperty("fold", "1")
-  editor:SetProperty("fold.compact", "1")
-  editor:SetProperty("fold.comment", "1")
 
   do
     local fg, bg = wx.wxWHITE, wx.wxColour(128, 128, 128)
@@ -447,7 +449,7 @@ function CreateEditor()
       local localpos = pos-linestart
       local linetxtopos = linetx:sub(1,localpos)
 
-      if (ch == char_CR and eol==2) or (ch == char_LF and eol==0) then
+      if (ch == char_LF) then
         if (line > 0) then
           local indent = editor:GetLineIndentation(line - 1)
           local linedone = editor:GetLine(line - 1)
@@ -818,6 +820,12 @@ function SetupKeywords(editor, ext, forcespec, styles, font, fontitalic)
     editor.api = GetApi("none")
     editor.spec = ide.specs.none
   end
+
+  -- need to set folding property after lexer is set, otherwise
+  -- the folds are not shown (wxwidgets 2.9.5)
+  editor:SetProperty("fold", "1")
+  editor:SetProperty("fold.compact", ide.config.editor.foldcompact and "1" or "0")
+  editor:SetProperty("fold.comment", "1")
 
   StylesApplyToEditor(styles or ide.config.styles, editor,
     font or ide.font.eNormal,fontitalic or ide.font.eItalic,lexerstyleconvert)

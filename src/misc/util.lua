@@ -170,7 +170,7 @@ function FileSysGet(dir,spec)
   local f = browse:FindFirst(dir,spec)
   while #f>0 do
     if f:match("^file:") then -- remove file: protocol (wx2.9+)
-      f = f:gsub("^file:/?","")
+      f = f:gsub(ide.osname == "Windows" and "^file:/?" or "^file:","")
         :gsub('%%(%x%x)', function(n) return string.char(tonumber(n, 16)) end)
     end
     local file = wx.wxFileName(f)
@@ -228,6 +228,8 @@ function FileCopy(file1, file2) return wx.wxCopyFile(file1, file2) end
 
 TimeGet = pcall(require, "socket") and socket.gettime or os.clock
 
+function isBinary(text) return text:find("[^\7\8\9\10\12\13\27\32-\255]") end
+
 function pairsSorted(t, f)
   local a = {}
   for n in pairs(t) do table.insert(a, n) end
@@ -260,6 +262,11 @@ function fixUTF8(s, replacement)
     end
   end
   return s, invalid
+end
+
+function RequestAttention()
+  local frame = ide.frame
+  if not frame:IsActive() then frame:RequestUserAttention() end
 end
 
 local messages, lang, counter

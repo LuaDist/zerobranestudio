@@ -123,7 +123,7 @@ local function updateStackSync()
         end
       end
       for name,val in pairs(frame[3]) do
-        local value, comment = val[1], val[2]
+        local value, comment = val[1], tostring(val[2])
         local text = ("%s = %s%s"):
           format(name, mobdebug.line(value, params),
                  simpleType[type(value)] and "" or ("  --[["..comment.."]]"))
@@ -189,12 +189,20 @@ local function activateDocument(file, line, skipauto)
     if document.filePath and fileName:SameAs(wx.wxFileName(document.filePath)) then
       local editor = document.editor
       local selection = document.index
+      RequestAttention()
       notebook:SetSelection(selection)
       SetEditorSelection(selection)
       ClearAllCurrentLineMarkers()
       if line then
-        editor:MarkerAdd(line-1, CURRENT_LINE_MARKER)
-        editor:EnsureVisibleEnforcePolicy(line-1)
+        local line = line - 1 -- editor line operations are zero-based
+        editor:MarkerAdd(line, CURRENT_LINE_MARKER)
+        local firstline = editor:DocLineFromVisible(editor:GetFirstVisibleLine())
+        local lastline = math.min(editor:GetLineCount(),
+          editor:DocLineFromVisible(editor:GetFirstVisibleLine() + editor:LinesOnScreen()))
+        -- if the line is already on the screen, then don't enforce policy
+        if line <= firstline or line >= lastline then
+          editor:EnsureVisibleEnforcePolicy(line)
+        end
       end
       activated = editor
       break
@@ -384,7 +392,14 @@ debugger.listen = function()
         -- OR (2) it can "refuse" to load it if the client was started
         -- with start() method, which can't load new files
         -- if file and line are set, this indicates option #2
-        if file and line then
+        if err then
+          DisplayOutputLn(TR("Can't debug the script in the active editor window.")
+            .." "..TR("Compilation error")
+            ..":\n"..err)
+          return debugger.terminate()
+        elseif options.runstart then
+          -- do nothing as no activation is required; the script will be run
+        elseif file and line then
           local activated = activateDocument(file, line, true)
 
           -- if not found, check using full file path and reset basedir
@@ -443,11 +458,6 @@ debugger.listen = function()
           -- debugger may still be available for scratchpad,
           -- if the interpreter signals scratchpad support, so enable it.
           debugger.scratchable = ide.interpreter.scratchextloop ~= nil
-        elseif err then
-          DisplayOutputLn(TR("Can't debug the script in the active editor window.")
-            .." "..TR("Compilation error")
-            ..":\n"..err)
-          return debugger.terminate()
         else
           debugger.scratchable = true
           activateDocument(startfile, 1)
@@ -483,9 +493,7 @@ debugger.handle = function(command, server, options)
   local verbose = ide.config.debugger.verbose
   local osexit, gprint
   osexit, os.exit = os.exit, function () end
-  if (verbose) then
-    gprint, _G.print = _G.print, function (...) DisplayOutputLn(...) end
-  end
+  gprint, _G.print = _G.print, function (...) if verbose then DisplayOutputLn(...) end end
 
   debugger.running = true
   if verbose then DisplayOutputLn("Debugger sent (command):", command) end
@@ -494,7 +502,7 @@ debugger.handle = function(command, server, options)
   debugger.running = false
 
   os.exit = osexit
-  if (verbose) then _G.print = gprint end
+  _G.print = gprint
   return file, line, err
 end
 
@@ -653,6 +661,9 @@ end
 function DebuggerShutdown()
   if debugger.server then debugger.terminate() end
   if debugger.pid then killClient() end
+  -- wait for a little bit as in some rare cases when closing the debugger
+  -- with a running application under OSX, the process crashes (wxlua2.8.12).
+  if ide.osname == "Macintosh" then wx.wxMilliSleep(100) end
 end
 
 function DebuggerStop()
