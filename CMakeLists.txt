@@ -9,5 +9,8 @@ cmake_minimum_required ( VERSION 2.8 )
 include ( cmake/dist.cmake )
 include ( lua )
 
+# Generate Version File from dist.info
+file ( WRITE ${CMAKE_CURRENT_SOURCE_DIR}/src/version.lua "ide.VERSION = [[${DIST_VERSION}]]" )
+
 install_lua_executable ( zbstudio zbstudio.lua NOCONSOLE )
 install_data ( src api cfg interpreters spec tools zbstudio )
